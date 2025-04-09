@@ -1,6 +1,5 @@
 import torch
 
-
 # class MLP(torch.nn.Module):
 #     def __init__(self, input_dim: int, output_dim: int) -> None:
 #         super().__init__()
@@ -9,7 +8,6 @@ import torch
 #     def forward(self, x: torch.Tensor) -> torch.Tensor:
 #         outputs = torch.sigmoid(self.linear(x))
 #         return outputs
-
 
 class MLPNet(torch.nn.Module):
     def __init__(self, input_dim: int, hidden_dims=[128, 64], output_dim=1):

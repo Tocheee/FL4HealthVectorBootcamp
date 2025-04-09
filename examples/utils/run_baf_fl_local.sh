@@ -7,7 +7,6 @@ server_output_file="examples/bank_account_fraud_example/server.out"
 client_output_folder="examples/bank_account_fraud_example/"
 
 
-
 # Start the server, divert the outputs to a server file
 
 echo "Server logging at: ${server_output_file}"

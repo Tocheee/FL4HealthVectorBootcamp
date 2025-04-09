@@ -7,7 +7,6 @@ from flwr.common.typing import Config
 from flwr.server.client_manager import SimpleClientManager
 from flwr.server.strategy import FedAvg
 
-#from examples.models.cnn_model import Net
 from examples.models.mlp_classifier import MLPNet
 
 from fl4health.checkpointing.checkpointer import BestLossTorchModuleCheckpointer, LatestTorchModuleCheckpointer
