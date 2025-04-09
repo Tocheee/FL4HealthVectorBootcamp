@@ -295,3 +295,131 @@ def load_msd_dataset(data_path: str, msd_dataset_name: str) -> None:
     msd_hash = msd_md5_hashes[msd_enum]
     url = msd_urls[msd_enum]
     download_and_extract(url=url, output_dir=data_path, hash_val=msd_hash, hash_type="md5", progress=True)
+
+
+
+
+import os
+import torch
+import pandas as pd
+import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from pathlib import Path
+from typing import List, Tuple
+
+class TabularScaler:
+    def __init__(self, numeric_features: List[str], categorical_features: List[str]) -> None:
+        self.numeric_features = numeric_features
+        self.categorical_features = categorical_features
+        self.scaler = StandardScaler()
+        self.encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+
+    def fit_transform(self, X: pd.DataFrame) -> np.ndarray:
+        # Apply standard scaling to numeric columns
+        numeric_data = X[self.numeric_features]
+        numeric_data_scaled = self.scaler.fit_transform(numeric_data)
+
+        # Apply one-hot encoding to categorical columns
+        categorical_data = X[self.categorical_features]
+        categorical_data_encoded = self.encoder.fit_transform(categorical_data)
+
+        # Combine numeric and categorical data
+        transformed_data = np.hstack((numeric_data_scaled, categorical_data_encoded))
+        return transformed_data
+
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        # Apply standard scaling to numeric columns
+        numeric_data = X[self.numeric_features]
+        numeric_data_scaled = self.scaler.transform(numeric_data)
+
+        # Apply one-hot encoding to categorical columns
+        categorical_data = X[self.categorical_features]
+        categorical_data_encoded = self.encoder.transform(categorical_data)
+
+        # Combine numeric and categorical data
+        transformed_data = np.hstack((numeric_data_scaled, categorical_data_encoded))
+        return transformed_data
+
+
+def load_data(data_dir: Path, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
+    # Get the list of CSV files in the data directory
+    all_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+
+    if len(all_files) == 0:
+        raise ValueError(f"No CSV files found in the directory: {data_dir}")
+
+    # Automatically select the file (you can still map it to a client index if needed)
+    file_name = all_files[0]  # Adjust based on your strategy
+    data_path = data_dir / file_name
+
+    # Read the CSV file into a DataFrame
+    df = pd.read_csv(data_path)
+    if 'device_distinct_emails' in df.columns:
+        df = df.drop(columns = 'device_distinct_emails')
+
+    # Set the target column and input features
+    target_col = "fraud_bool"  # Target column should match your dataset
+    y = df[target_col].values
+    X = df.drop(columns=[target_col])
+
+    # Columns by type
+    numeric_cols = [
+        "income", "name_email_similarity", "prev_address_months_count",
+        "current_address_months_count", "customer_age", "days_since_request",
+        "intended_balcon_amount", "zip_count_4w", "velocity_6h",
+        "velocity_24h", "velocity_4w", "bank_branch_count_8w",
+        "date_of_birth_distinct_emails_4w", "credit_risk_score",
+        "bank_months_count", "proposed_credit_limit", "session_length_in_minutes",
+        "device_fraud_count", "month" #device_distinct_emails
+    ]
+
+    categorical_cols = [
+        "payment_type", "employment_status", "housing_status",
+        "source", "device_os"
+    ]
+
+    binary_cols = [
+        "email_is_free", "phone_home_valid", "phone_mobile_valid",
+        "has_other_cards", "foreign_request", "keep_alive_session"
+    ]
+
+    # Filter the columns
+    all_input_cols = numeric_cols + categorical_cols + binary_cols
+    X = X[all_input_cols]
+
+    # Train/test split
+    n_samples = len(df)
+    split_index = int(n_samples * 0.8)
+
+    X_train, y_train = X[:split_index], y[:split_index]
+    X_val, y_val = X[split_index:], y[split_index:]
+
+    # Instantiate the TabularScaler with the numeric and categorical columns
+    scaler = TabularScaler(numeric_features=numeric_cols, categorical_features=categorical_cols)
+
+    # Apply scaler and encoder
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+
+    # Convert to tensors
+    X_train_tensor = torch.tensor(X_train_scaled).float()
+    y_train_tensor = torch.tensor(y_train).float()
+
+    X_val_tensor = torch.tensor(X_val_scaled).float()
+    y_val_tensor = torch.tensor(y_val).float()
+
+    # Wrap into TensorDataset and DataLoaders
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+    num_examples = {"train_set": len(train_dataset), "validation_set": len(val_dataset)}
+
+    return train_loader, val_loader, num_examples
