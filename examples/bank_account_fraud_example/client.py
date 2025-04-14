@@ -34,7 +34,6 @@ class FraudClient(BasicClient):
 
     def get_data_loaders(self, config: Config) -> tuple[DataLoader, DataLoader]:
         batch_size = narrow_dict_type(config, "batch_size", int)
-        self.train_loader = self.data_loader.train_loader(batch_size)
         train_loader, val_loader, _, _, _ = self.data_loader.load_baf_data(batch_size=batch_size)
         return train_loader, val_loader
 
