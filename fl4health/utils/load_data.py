@@ -299,128 +299,159 @@ def load_msd_dataset(data_path: str, msd_dataset_name: str) -> None:
 
 
 
+
 import os
 import torch
 import pandas as pd
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
 from pathlib import Path
 from typing import List, Tuple
+import joblib
+
 
 class TabularScaler:
     def __init__(self, numeric_features: List[str], categorical_features: List[str]) -> None:
         self.numeric_features = numeric_features
         self.categorical_features = categorical_features
-        self.scaler = StandardScaler()
-        self.encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+        self.scaler = None
+        self.encoder = None
 
     def fit_transform(self, X: pd.DataFrame) -> np.ndarray:
-        # Apply standard scaling to numeric columns
-        numeric_data = X[self.numeric_features]
-        numeric_data_scaled = self.scaler.fit_transform(numeric_data)
+        from sklearn.preprocessing import StandardScaler, OneHotEncoder
+        self.scaler = StandardScaler()
+        self.encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
 
-        # Apply one-hot encoding to categorical columns
-        categorical_data = X[self.categorical_features]
-        categorical_data_encoded = self.encoder.fit_transform(categorical_data)
+        # Fill missing columns before fitting
+        for col in self.numeric_features:
+            if col not in X.columns:
+                X[col] = 0.0
+        for col in self.categorical_features:
+            if col not in X.columns:
+                X[col] = "unknown"
 
-        # Combine numeric and categorical data
-        transformed_data = np.hstack((numeric_data_scaled, categorical_data_encoded))
-        return transformed_data
+        # Reorder to ensure consistent order
+        X = X[self.numeric_features + self.categorical_features]
+
+        numeric_data_scaled = self.scaler.fit_transform(X[self.numeric_features])
+        categorical_data_encoded = self.encoder.fit_transform(X[self.categorical_features])
+        return np.hstack((numeric_data_scaled, categorical_data_encoded))
 
     def transform(self, X: pd.DataFrame) -> np.ndarray:
-        # Apply standard scaling to numeric columns
-        numeric_data = X[self.numeric_features]
-        numeric_data_scaled = self.scaler.transform(numeric_data)
+        # Fill missing numeric features with 0.0
+        for col in self.numeric_features:
+            if col not in X.columns:
+                X[col] = 0.0
 
-        # Apply one-hot encoding to categorical columns
-        categorical_data = X[self.categorical_features]
-        categorical_data_encoded = self.encoder.transform(categorical_data)
+        # Fill missing categorical features with "unknown"
+        for col in self.categorical_features:
+            if col not in X.columns:
+                X[col] = "unknown"
 
-        # Combine numeric and categorical data
-        transformed_data = np.hstack((numeric_data_scaled, categorical_data_encoded))
-        return transformed_data
+        # Reorder columns to match the fit order
+        X = X[self.numeric_features + self.categorical_features]
+
+        numeric_data_scaled = self.scaler.transform(X[self.numeric_features])
+        categorical_data_encoded = self.encoder.transform(X[self.categorical_features])
+        return np.hstack((numeric_data_scaled, categorical_data_encoded))
 
 
-def load_data(data_dir: Path, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
-    # Get the list of CSV files in the data directory
-    all_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+class DataPrep:
+    def __init__(self, data_file_path: Path, scaler_path: Path) -> None:
+        self.data_file_path = data_file_path
+        self.scaler = joblib.load(scaler_path)
+        
+        self.train_loader = None
+        self.val_loader = None
+        self.test_loader = None
+        self.num_examples = None
+        self.input_dim = None
 
-    if len(all_files) == 0:
-        raise ValueError(f"No CSV files found in the directory: {data_dir}")
+    def load_baf_data(self, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
+        print(f"\n\nLoading data from: {self.data_file_path}\n\n")
 
-    # Automatically select the file (you can still map it to a client index if needed)
-    file_name = all_files[0]  # Adjust based on your strategy
-    data_path = data_dir / file_name
+        df = pd.read_csv(self.data_file_path)
 
-    # Read the CSV file into a DataFrame
-    df = pd.read_csv(data_path)
-    if 'device_distinct_emails' in df.columns:
-        df = df.drop(columns = 'device_distinct_emails')
+        # Drop irrelevant or redundant columns
+        df = df.drop(columns=[
+            "bank_months_count",
+            "prev_address_months_count",
+            "velocity_4w"
+        ])
 
-    # Set the target column and input features
-    target_col = "fraud_bool"  # Target column should match your dataset
-    y = df[target_col].values
-    X = df.drop(columns=[target_col])
+        # Handle missing values
+        cols_missing = [
+            'current_address_months_count',
+            'session_length_in_minutes',
+            'device_distinct_emails_8w',
+            'intended_balcon_amount'
+        ]
+        df[cols_missing] = df[cols_missing].replace(-1, np.nan)
+        df = df.dropna()
 
-    # Columns by type
-    numeric_cols = [
-        "income", "name_email_similarity", "prev_address_months_count",
-        "current_address_months_count", "customer_age", "days_since_request",
-        "intended_balcon_amount", "zip_count_4w", "velocity_6h",
-        "velocity_24h", "velocity_4w", "bank_branch_count_8w",
-        "date_of_birth_distinct_emails_4w", "credit_risk_score",
-        "bank_months_count", "proposed_credit_limit", "session_length_in_minutes",
-        "device_fraud_count", "month" #device_distinct_emails
-    ]
+        # Target and input
+        target_col = "fraud_bool"
+        y = df[target_col].values
+        X = df.drop(columns=[target_col])
 
-    categorical_cols = [
-        "payment_type", "employment_status", "housing_status",
-        "source", "device_os"
-    ]
+        # Train/Val/Test shuffle split: 70/15/15
+        X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
+        X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.1765, random_state=42, stratify=y_temp)
+        
+        # Fit and transform
+        X_train_scaled = self.scaler.transform(X_train)
+        X_val_scaled = self.scaler.transform(X_val)
+        X_test_scaled = self.scaler.transform(X_test)
+        
+        # Calculate input_dim
+        self.input_dim = X_train_scaled.shape[1]
 
-    binary_cols = [
-        "email_is_free", "phone_home_valid", "phone_mobile_valid",
-        "has_other_cards", "foreign_request", "keep_alive_session"
-    ]
+        def to_tensor(data, labels):
+            return torch.tensor(data, dtype=torch.float32), torch.tensor(labels, dtype=torch.float32)
 
-    # Filter the columns
-    all_input_cols = numeric_cols + categorical_cols + binary_cols
-    X = X[all_input_cols]
+        X_train_tensor, y_train_tensor = to_tensor(X_train_scaled, y_train)
+        X_val_tensor, y_val_tensor = to_tensor(X_val_scaled, y_val)
+        X_test_tensor, y_test_tensor = to_tensor(X_test_scaled, y_test)
 
-    # Train/test split
-    n_samples = len(df)
-    split_index = int(n_samples * 0.8)
+        # DataLoaders
+        self.train_loader = DataLoader(TensorDataset(X_train_tensor, y_train_tensor), batch_size=batch_size, shuffle=True)
+        self.val_loader = DataLoader(TensorDataset(X_val_tensor, y_val_tensor), batch_size=batch_size)
+        self.test_loader = DataLoader(TensorDataset(X_test_tensor, y_test_tensor), batch_size=batch_size)
 
-    X_train, y_train = X[:split_index], y[:split_index]
-    X_val, y_val = X[split_index:], y[split_index:]
+        self.num_examples = {
+            "train_set": len(X_train_tensor),
+            "validation_set": len(X_val_tensor),
+            "test_set": len(X_test_tensor),
+        }
 
-    # Instantiate the TabularScaler with the numeric and categorical columns
-    scaler = TabularScaler(numeric_features=numeric_cols, categorical_features=categorical_cols)
+        return self.train_loader, self.val_loader, self.test_loader, self.num_examples, self.input_dim
 
-    # Apply scaler and encoder
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
+    def get_train_loader(self, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
+        """Returns:
+        tuple[DataLoader, DataLoader, dict[str, int]]: The train data loader, validation data loader and a dictionary
+        with the sample counts of datasets underpinning the respective data loaders.
+        """
+        if self.train_loader is None or self.val_loader is None or self.num_examples is None:
+            self.load_baf_data(batch_size)
+        return self.train_loader, self.val_loader, {
+            "train_set": self.num_examples["train_set"],
+            "val_set": self.num_examples["val_set"]
+        }
 
-    # Convert to tensors
-    X_train_tensor = torch.tensor(X_train_scaled).float()
-    y_train_tensor = torch.tensor(y_train).float()
+    def get_test_loader(self, batch_size: int) -> Tuple[DataLoader, dict[str, int]]:
+        """Returns:
+        tuple[DataLoader, dict[str, int]]: The test data loader and a dictionary containing the sample count of the
+        test dataset.
+        """
+        if self.test_loader is None or self.num_examples is None:
+            self.load_baf_data(batch_size)
+        return self.test_loader, {
+            "test_set": self.num_examples["test_set"]
+        }
 
-    X_val_tensor = torch.tensor(X_val_scaled).float()
-    y_val_tensor = torch.tensor(y_val).float()
-
-    # Wrap into TensorDataset and DataLoaders
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
-
-    num_examples = {"train_set": len(train_dataset), "validation_set": len(val_dataset)}
-
-    return train_loader, val_loader, num_examples
-    
+    def get_input_dim(self) -> int:
+        if self.input_dim is None:
+            self.load_baf_data(batch_size=1)
+        return self.input_dim
