@@ -3,16 +3,13 @@ from functools import partial
 from typing import Any
 from pathlib import Path
 import joblib
-# import os
 
 import flwr as fl
 from flwr.common.typing import Config
 from flwr.server.client_manager import SimpleClientManager
 from flwr.server.strategy import FedAvg
 
-#from examples.models.cnn_model import Net
 from examples.models.mlp_classifier import MLPNet
-
 from fl4health.checkpointing.checkpointer import BestLossTorchModuleCheckpointer, LatestTorchModuleCheckpointer
 from fl4health.checkpointing.server_module import BaseServerCheckpointAndStateModule
 from fl4health.parameter_exchange.full_exchanger import FullParameterExchanger
@@ -20,7 +17,6 @@ from fl4health.servers.base_server import FlServer
 from fl4health.utils.config import load_config, make_dict_with_epochs_or_steps
 from fl4health.utils.metric_aggregation import evaluate_metrics_aggregation_fn, fit_metrics_aggregation_fn
 from fl4health.utils.parameter_extraction import get_all_model_parameters
-# from fl4health.utils.load_data import DataPrep 
 
 def fit_config(
     batch_size: int,
@@ -40,9 +36,8 @@ def get_input_dim_from_scaler(scaler_path: str) -> int:
     import pandas as pd
 
     scaler: TabularScaler = joblib.load(scaler_path)
-    print("Numeric features:", scaler.numeric_features)
-    print("Categorical features:", scaler.categorical_features)
-
+    # print("Numeric features:", scaler.numeric_features)
+    # print("Categorical features:", scaler.categorical_features)
 
     # Create a dummy row with the same columns used during fitting
     feature_names = scaler.numeric_features + scaler.categorical_features
@@ -98,6 +93,7 @@ def main(config: dict[str, Any]) -> None:#, , data_file_path: str
         fl_config=config,
         strategy=strategy,
         checkpoint_and_state_module=checkpoint_and_state_module,
+        # accept_failures=True, 
         accept_failures=False,
     )
 
