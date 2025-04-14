@@ -20,7 +20,6 @@ def compute_class_counts(data_path: str) -> dict[int, int]:
 
     return class_counts
 
-
 def compute_class_weights(class_counts: dict[int, int]) -> torch.Tensor:
     """
     Compute the weights for each class based on their distribution.
