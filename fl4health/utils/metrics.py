@@ -288,44 +288,6 @@ class Accuracy(SimpleMetric):
         return sklearn_metrics.accuracy_score(target, preds)
 
 
-# class BalancedAccuracy(SimpleMetric):
-#     def __init__(self, name: str = "balanced_accuracy"):
-#         """
-#         Balanced accuracy metric for classification tasks. Used for the evaluation of imbalanced datasets. For more
-#         information:
-
-#         https://scikit-learn.org/stable/modules/generated/sklearn.metrics.balanced_accuracy_score.html
-#         """
-#         super().__init__(name)
-
-#     def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
-#         # assuming batch first
-#         assert logits.shape[0] == target.shape[0]
-#         target = target.cpu().detach()
-#         logits = logits.cpu().detach()
-#         y_true = target.reshape(-1)
-#         preds = np.argmax(logits, axis=1)
-#         return sklearn_metrics.balanced_accuracy_score(y_true, preds)
-
-class BalancedAccuracy(SimpleMetric):
-    def __init__(self, name: str = "balanced_accuracy"):
-        super().__init__(name)
-
-    def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
-        assert logits.shape[0] == target.shape[0]
-        target = target.cpu().detach()
-        logits = logits.cpu().detach()
-
-        y_true = target.reshape(-1)
-        if logits.ndimension() == 1:  # For binary classification (logits shape: [batch_size])
-            preds = np.round(logits.numpy())  # Binary thresholding
-        else:
-            preds = np.argmax(logits.numpy(), axis=1)  # For multiclass classification
-
-        return sklearn_metrics.balanced_accuracy_score(y_true, preds)
-
-
-
 class ROC_AUC(SimpleMetric):
     def __init__(self, name: str = "ROC_AUC score"):
         """
@@ -343,40 +305,25 @@ class ROC_AUC(SimpleMetric):
         y_true = target.reshape(-1)
         return sklearn_metrics.roc_auc_score(y_true, prob, average="weighted", multi_class="ovr")
 
-
-# class F1(SimpleMetric):
-#     def __init__(
-#         self,
-#         name: str = "F1 score",
-#         average: str | None = "weighted",
-#     ):
-#         """
-#         Computes the F1 score using the ``sklearn f1_score`` function. As such, the values of average correspond to
-#         those of that function.
-
-#         Args:
-#             name (str, optional): Name of the metric. Defaults to "F1 score".
-#             average (str | None, optional): Whether to perform averaging of the F1 scores and how. The values of this
-#                 string corresponds to those of the ``sklearn f1_score function``. See:
-
-#                 https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html
-
-#                 Defaults to "weighted".
-#         """
-#         super().__init__(name)
-#         self.average = average
-
-#     def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
-#         assert logits.shape[0] == target.shape[0]
-#         target = target.cpu().detach()
-#         logits = logits.cpu().detach()
-#         y_true = target.reshape(-1)
-#         preds = np.argmax(logits, axis=1)
-#         return sklearn_metrics.f1_score(y_true, preds, average=self.average)
-
-
 class F1(SimpleMetric):
-    def __init__(self, name: str = "F1 score", average: str | None = "weighted"):
+    def __init__(
+        self,
+        name: str = "F1 score",
+        average: str | None = "weighted",
+    ):
+        """
+        Computes the F1 score using the ``sklearn f1_score`` function. As such, the values of average correspond to
+        those of that function.
+
+        Args:
+            name (str, optional): Name of the metric. Defaults to "F1 score".
+            average (str | None, optional): Whether to perform averaging of the F1 scores and how. The values of this
+                string corresponds to those of the ``sklearn f1_score function``. See:
+
+                https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html
+
+                Defaults to "weighted".
+        """
         super().__init__(name)
         self.average = average
 
@@ -384,16 +331,32 @@ class F1(SimpleMetric):
         assert logits.shape[0] == target.shape[0]
         target = target.cpu().detach()
         logits = logits.cpu().detach()
-
         y_true = target.reshape(-1)
-        if logits.ndimension() == 1:  # For binary classification (logits shape: [batch_size])
-            preds = np.round(logits.numpy())  # Binary thresholding
-        else:
-            preds = np.argmax(logits.numpy(), axis=1)  # For multiclass classification
-
+        mask_one = logits >= 0.5
+        preds = torch.zeros_like(logits)
+        preds[mask_one] = 1.0
         return sklearn_metrics.f1_score(y_true, preds, average=self.average)
 
+class BalancedAccuracy(SimpleMetric):
+    def __init__(self, name: str = "balanced_accuracy"):
+        """
+        Balanced accuracy metric for classification tasks. Used for the evaluation of imbalanced datasets. For more
+        information:
 
+        https://scikit-learn.org/stable/modules/generated/sklearn.metrics.balanced_accuracy_score.html
+        """
+        super().__init__(name)
+
+    def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
+        # assuming batch first
+        assert logits.shape[0] == target.shape[0]
+        target = target.cpu().detach()
+        logits = logits.cpu().detach()
+        y_true = target.reshape(-1)
+        mask_one = logits >= 0.5
+        preds = torch.zeros_like(logits)
+        preds[mask_one] = 1.0
+        return sklearn_metrics.balanced_accuracy_score(y_true, preds)
 
 class MetricManager:
     def __init__(self, metrics: Sequence[Metric], metric_manager_name: str) -> None:
