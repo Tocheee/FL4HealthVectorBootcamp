@@ -1,12 +1,16 @@
 import argparse
 from functools import partial
 from typing import Any
+from pathlib import Path
+import joblib
+# import os
 
 import flwr as fl
 from flwr.common.typing import Config
 from flwr.server.client_manager import SimpleClientManager
 from flwr.server.strategy import FedAvg
 
+#from examples.models.cnn_model import Net
 from examples.models.mlp_classifier import MLPNet
 
 from fl4health.checkpointing.checkpointer import BestLossTorchModuleCheckpointer, LatestTorchModuleCheckpointer
@@ -16,7 +20,7 @@ from fl4health.servers.base_server import FlServer
 from fl4health.utils.config import load_config, make_dict_with_epochs_or_steps
 from fl4health.utils.metric_aggregation import evaluate_metrics_aggregation_fn, fit_metrics_aggregation_fn
 from fl4health.utils.parameter_extraction import get_all_model_parameters
-
+# from fl4health.utils.load_data import DataPrep 
 
 def fit_config(
     batch_size: int,
@@ -30,8 +34,27 @@ def fit_config(
         "current_server_round": current_server_round,
     }
 
+def get_input_dim_from_scaler(scaler_path: str) -> int:
+    from fl4health.utils.load_data import TabularScaler
+    import numpy as np
+    import pandas as pd
 
-def main(config: dict[str, Any]) -> None:
+    scaler: TabularScaler = joblib.load(scaler_path)
+    print("Numeric features:", scaler.numeric_features)
+    print("Categorical features:", scaler.categorical_features)
+
+
+    # Create a dummy row with the same columns used during fitting
+    feature_names = scaler.numeric_features + scaler.categorical_features
+    dummy_data = pd.DataFrame(
+        [[0.0 if col in scaler.numeric_features else "unknown" for col in feature_names]],
+        columns=feature_names
+    )
+
+    transformed = scaler.transform(dummy_data)
+    return transformed.shape[1]
+
+def main(config: dict[str, Any]) -> None:#, , data_file_path: str
     # This function will be used to produce a config that is sent to each client to initialize their own environment
     fit_config_fn = partial(
         fit_config,
@@ -40,10 +63,11 @@ def main(config: dict[str, Any]) -> None:
         local_steps=config.get("local_steps"),
     )
 
-    # Initializing the model on the server side
-    # model = Net()
-    input_dim = 68  # same as above
-    model = MLPNet(input_dim)
+    scaler_path = config["scaler_path"]  # <-- MUST be set in config.yaml
+    input_dim = get_input_dim_from_scaler(scaler_path)
+    
+    print(f"\n[Server] Input dimension set from global scaler: {input_dim}\n")
+    model = MLPNet(input_dim = input_dim)
 
     # To facilitate checkpointing
     parameter_exchanger = FullParameterExchanger()
@@ -96,5 +120,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config_path)
-
+    
     main(config)
