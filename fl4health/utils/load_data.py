@@ -311,7 +311,6 @@ from pathlib import Path
 from typing import List, Tuple
 import joblib
 
-
 class TabularScaler:
     def __init__(self, numeric_features: List[str], categorical_features: List[str]) -> None:
         self.numeric_features = numeric_features
@@ -357,24 +356,26 @@ class TabularScaler:
         categorical_data_encoded = self.encoder.transform(X[self.categorical_features])
         return np.hstack((numeric_data_scaled, categorical_data_encoded))
 
-
 class DataPrep:
-    def __init__(self, data_file_path: Path, scaler_path: Path) -> None:
+    def __init__(self, data_file_path: Path, scaler_path: Path, batch_size: int):
         self.data_file_path = data_file_path
         self.scaler = joblib.load(scaler_path)
-        
+        self.batch_size = batch_size
+
         self.train_loader = None
         self.val_loader = None
         self.test_loader = None
-        self.num_examples = None
+
         self.input_dim = None
+        self.num_examples = {}
 
-    def load_baf_data(self, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
-        print(f"\n\nLoading data from: {self.data_file_path}\n\n")
+        self._prepare_data()
 
+    def _prepare_data(self):
+        print(f"\nLoading data from: {self.data_file_path}\n")
         df = pd.read_csv(self.data_file_path)
 
-        # Drop irrelevant or redundant columns
+        # Drop redundant columns
         df = df.drop(columns=[
             "bank_months_count",
             "prev_address_months_count",
@@ -391,67 +392,45 @@ class DataPrep:
         df[cols_missing] = df[cols_missing].replace(-1, np.nan)
         df = df.dropna()
 
-        # Target and input
         target_col = "fraud_bool"
         y = df[target_col].values
         X = df.drop(columns=[target_col])
 
-        # Train/Val/Test shuffle split: 70/15/15
+        # Train/val/test split
         X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
         X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.1765, random_state=42, stratify=y_temp)
-        
-        # Fit and transform
+
+        # Scale using the global scaler
         X_train_scaled = self.scaler.transform(X_train)
         X_val_scaled = self.scaler.transform(X_val)
         X_test_scaled = self.scaler.transform(X_test)
-        
-        # Calculate input_dim
+
         self.input_dim = X_train_scaled.shape[1]
 
-        def to_tensor(data, labels):
-            return torch.tensor(data, dtype=torch.float32), torch.tensor(labels, dtype=torch.float32)
+        # Convert to tensors
+        def make_loader(X_data, y_data):
+            X_tensor = torch.tensor(X_data, dtype=torch.float32)
+            y_tensor = torch.tensor(y_data, dtype=torch.float32)
+            return DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=self.batch_size, shuffle=True)
 
-        X_train_tensor, y_train_tensor = to_tensor(X_train_scaled, y_train)
-        X_val_tensor, y_val_tensor = to_tensor(X_val_scaled, y_val)
-        X_test_tensor, y_test_tensor = to_tensor(X_test_scaled, y_test)
-
-        # DataLoaders
-        self.train_loader = DataLoader(TensorDataset(X_train_tensor, y_train_tensor), batch_size=batch_size, shuffle=True)
-        self.val_loader = DataLoader(TensorDataset(X_val_tensor, y_val_tensor), batch_size=batch_size)
-        self.test_loader = DataLoader(TensorDataset(X_test_tensor, y_test_tensor), batch_size=batch_size)
+        self.train_loader = make_loader(X_train_scaled, y_train)
+        self.val_loader = make_loader(X_val_scaled, y_val)
+        self.test_loader = make_loader(X_test_scaled, y_test)
 
         self.num_examples = {
-            "train_set": len(X_train_tensor),
-            "validation_set": len(X_val_tensor),
-            "test_set": len(X_test_tensor),
+            "train_set": len(y_train),
+            "val_set": len(y_val),
+            "test_set": len(y_test),
         }
 
-        return self.train_loader, self.val_loader, self.test_loader, self.num_examples, self.input_dim
+    def get_train_val_loaders(self):
+        return self.train_loader, self.val_loader
 
-    def get_train_loader(self, batch_size: int) -> Tuple[DataLoader, DataLoader, dict[str, int]]:
-        """Returns:
-        tuple[DataLoader, DataLoader, dict[str, int]]: The train data loader, validation data loader and a dictionary
-        with the sample counts of datasets underpinning the respective data loaders.
-        """
-        if self.train_loader is None or self.val_loader is None or self.num_examples is None:
-            self.load_baf_data(batch_size)
-        return self.train_loader, self.val_loader, {
-            "train_set": self.num_examples["train_set"],
-            "val_set": self.num_examples["val_set"]
-        }
+    def get_test_loader(self):
+        return self.test_loader
 
-    def get_test_loader(self, batch_size: int) -> Tuple[DataLoader, dict[str, int]]:
-        """Returns:
-        tuple[DataLoader, dict[str, int]]: The test data loader and a dictionary containing the sample count of the
-        test dataset.
-        """
-        if self.test_loader is None or self.num_examples is None:
-            self.load_baf_data(batch_size)
-        return self.test_loader, {
-            "test_set": self.num_examples["test_set"]
-        }
-
-    def get_input_dim(self) -> int:
-        if self.input_dim is None:
-            self.load_baf_data(batch_size=1)
+    def get_input_dim(self):
         return self.input_dim
+
+    def get_num_examples(self):
+        return self.num_examples
