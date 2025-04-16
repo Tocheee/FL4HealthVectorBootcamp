@@ -3,18 +3,25 @@ import warnings
 from collections.abc import Callable
 from logging import INFO
 from pathlib import Path
+import os
 
+import pandas as pd
 import numpy as np
 import torch
 import torchvision.transforms as transforms
 from flwr.common.logger import log
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from torchvision.datasets import CIFAR10, MNIST
 
 from fl4health.utils.dataset import TensorDataset
 from fl4health.utils.dataset_converter import DatasetConverter
 from fl4health.utils.msd_dataset_sources import get_msd_dataset_enum, msd_md5_hashes, msd_urls
 from fl4health.utils.sampler import LabelBasedSampler
+
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from typing import List, Tuple
+import joblib
 
 with warnings.catch_warnings():
     # ignoring some annoying scipy deprecation warnings
@@ -297,20 +304,7 @@ def load_msd_dataset(data_path: str, msd_dataset_name: str) -> None:
     download_and_extract(url=url, output_dir=data_path, hash_val=msd_hash, hash_type="md5", progress=True)
 
 
-
-
-
-import os
-import torch
-import pandas as pd
-import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.model_selection import train_test_split
-from pathlib import Path
-from typing import List, Tuple
-import joblib
-
+## load bank account fraud dataset
 class TabularScaler:
     def __init__(self, numeric_features: List[str], categorical_features: List[str]) -> None:
         self.numeric_features = numeric_features
