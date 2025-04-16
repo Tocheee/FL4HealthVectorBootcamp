@@ -93,13 +93,12 @@ def main(config: dict[str, Any]) -> None:#, , data_file_path: str
         fl_config=config,
         strategy=strategy,
         checkpoint_and_state_module=checkpoint_and_state_module,
-        # accept_failures=True, 
         accept_failures=False,
     )
 
     fl.server.start_server(
         server=server,
-        server_address="0.0.0.0:8080",
+        server_address="0.0.0.0:1080",
         config=fl.server.ServerConfig(num_rounds=config["n_server_rounds"]),
     )
 
