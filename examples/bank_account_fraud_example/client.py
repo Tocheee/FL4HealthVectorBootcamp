@@ -30,7 +30,7 @@ class FraudClient(BasicClient):
         self.data_loader = DataPrep(
             data_file_path=Path(self.data_file_path),
             scaler_path=Path(self.scaler_path),
-            batch_size=16
+            batch_size=32
         )
 
         # Expose required attributes to BasicClient
@@ -40,8 +40,9 @@ class FraudClient(BasicClient):
         self.num_train_samples = len(self.train_loader.dataset)
         self.num_val_samples = len(self.val_loader.dataset)
         self.num_test_samples = len(self.test_loader.dataset)
-        print("Data dimension: ",self.input_dim)     
 
+        print("Data dimension: ",self.input_dim)
+        
         self.model = self.get_model({})
         self.optimizers = {"global": self.get_optimizer({})}
         self.lr_schedulers = {}
@@ -60,7 +61,7 @@ class FraudClient(BasicClient):
         counts = compute_class_counts(self.data_file_path)
         pos_weight = torch.tensor([counts[0] / counts[1]])
         return torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(self.device))
-
+        
     def get_optimizer(self, config: Config) -> Optimizer:
         return torch.optim.Adam(self.model.parameters(), lr=0.001)
 
@@ -88,6 +89,6 @@ if __name__ == "__main__":
         progress_bar = True
     )
 
-    fl.client.start_client(server_address="0.0.0.0:8080", client=client.to_client())
+    fl.client.start_client(server_address="0.0.0.0:1080", client=client.to_client())
     torch.cuda.empty_cache()
     client.shutdown()
