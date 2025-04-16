@@ -305,6 +305,7 @@ class ROC_AUC(SimpleMetric):
         y_true = target.reshape(-1)
         return sklearn_metrics.roc_auc_score(y_true, prob, average="weighted", multi_class="ovr")
 
+
 class F1(SimpleMetric):
     def __init__(
         self,
@@ -325,7 +326,8 @@ class F1(SimpleMetric):
                 Defaults to "weighted".
         """
         super().__init__(name)
-        self.average = average
+        # self.average = average
+        self.average = "macro"
 
     def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
         assert logits.shape[0] == target.shape[0]
@@ -336,6 +338,7 @@ class F1(SimpleMetric):
         preds = torch.zeros_like(logits)
         preds[mask_one] = 1.0
         return sklearn_metrics.f1_score(y_true, preds, average=self.average)
+
 
 class BalancedAccuracy(SimpleMetric):
     def __init__(self, name: str = "balanced_accuracy"):
@@ -357,6 +360,7 @@ class BalancedAccuracy(SimpleMetric):
         preds = torch.zeros_like(logits)
         preds[mask_one] = 1.0
         return sklearn_metrics.balanced_accuracy_score(y_true, preds)
+
 
 class MetricManager:
     def __init__(self, metrics: Sequence[Metric], metric_manager_name: str) -> None:
