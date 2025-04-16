@@ -2,8 +2,10 @@
 
 n_clients_to_start=2
 config_path="examples/bank_account_fraud_example/config.yaml"
+
 # dataset_path="/projects/federated_learning/RBC2/Bank_Account_Fraud/"
 dataset_path="/projects/federated_learning/RBC2/share/"
+
 server_output_file="examples/bank_account_fraud_example/server.out"
 client_output_folder="examples/bank_account_fraud_example/"
 scaler_save_path="examples/bank_account_fraud_example/global_scaler.joblib"  # Adjust as needed
@@ -21,8 +23,9 @@ nohup python -m examples.bank_account_fraud_example.server --config_path ${confi
 # Sleep for 20 seconds to allow the server to come up.
 sleep 20
 
-# Step 3: Start a client for each Variant*.csv file
+# Step 3: Start a client for each Variant*.csv or base*.csv file
 i=1
+
 # for file in "${dataset_path}"/Variant*.csv; do
 for file in "${dataset_path}"/base*.csv; do
     client_log_path="${client_output_folder}client_${i}.out"
