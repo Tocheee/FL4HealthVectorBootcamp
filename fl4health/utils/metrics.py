@@ -5,11 +5,14 @@ from enum import Enum
 
 import numpy as np
 import torch
+from torch import Tensor
 from flwr.common.typing import Metrics, Scalar
 from sklearn import metrics as sklearn_metrics
 from torchmetrics import Metric as TMetric
+from typing import Union
 
 from fl4health.utils.typing import TorchPredType, TorchTargetType, TorchTransformFunction
+from sklearn.metrics import roc_auc_score, confusion_matrix, precision_score, recall_score
 
 
 class MetricPrefix(Enum):
@@ -289,21 +292,88 @@ class Accuracy(SimpleMetric):
 
 
 class ROC_AUC(SimpleMetric):
+    # The model outputs raw logits, not probabilities. 
+    # ROC AUC needs probabilities, so we apply sigmoid to logits and convert logits to [0, 1] probabilities to compute ROC AUC.
+    # This converts model predictions into a form suitable for AUC calculation, especially for binary classification.
     def __init__(self, name: str = "ROC_AUC score"):
         """
-        Area under the Receiver Operator Curve (AUCROC) metric for classification. For more information:
-
-        https://scikit-learn.org/stable/modules/generated/sklearn.metrics.balanced_accuracy_score.html
+        Area under the Receiver Operating Characteristic Curve (ROC AUC).
+        Supports both binary and multiclass classification.
         """
         super().__init__(name)
 
+    def __call__(self, logits: Tensor, target: Tensor) -> Union[float, None]:
+        assert logits.shape[0] == target.shape[0]
+
+        # Move to CPU and detach from graph
+        logits = logits.cpu().detach()
+        target = target.cpu().detach().reshape(-1)
+
+        # Binary classification (logits shape: [N, 1] or [N])
+        if logits.shape[1] == 1:
+            # Apply sigmoid and flatten
+            prob = torch.sigmoid(logits).squeeze(1).numpy() # Converts logits to [0, 1] probabilities
+            return roc_auc_score(target.numpy(), prob)
+
+        # Multiclass classification (logits shape: [N, C])
+        prob = torch.nn.functional.softmax(logits, dim=1).numpy()
+
+        # Return ROC AUC with One-vs-Rest strategy
+        return roc_auc_score(target.numpy(), prob, average="weighted", multi_class="ovr")
+
+
+class Precision(SimpleMetric):
+    def __init__(
+        self,
+        name: str = "Precision",
+        average: str | None = "weighted",
+    ):
+        """
+        Computes the Precision score using sklearn.metrics.precision_score.
+
+        Args:
+            name (str, optional): Name of the metric. Defaults to "Precision".
+            average (str | None, optional): Averaging strategy. See:
+                https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_score.html
+                Defaults to "weighted".
+        """
+        super().__init__(name)
+        self.average = "macro"  # or "binary" or "weighted" depending on your setup
+
     def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
         assert logits.shape[0] == target.shape[0]
-        prob = torch.nn.functional.softmax(logits, dim=1)
-        prob = prob.cpu().detach()
         target = target.cpu().detach()
+        logits = logits.cpu().detach()
         y_true = target.reshape(-1)
-        return sklearn_metrics.roc_auc_score(y_true, prob, average="weighted", multi_class="ovr")
+        preds = (logits >= 0.5).float()
+        return sklearn_metrics.precision_score(y_true, preds, average=self.average, zero_division=0)
+
+
+class Recall(SimpleMetric):
+    def __init__(
+        self,
+        name: str = "Recall",
+        average: str | None = "weighted",
+    ):
+        """
+        Computes the Recall score using sklearn.metrics.recall_score.
+
+        Args:
+            name (str, optional): Name of the metric. Defaults to "Recall".
+            average (str | None, optional): Averaging strategy. See:
+                https://scikit-learn.org/stable/modules/generated/sklearn.metrics.recall_score.html
+                Defaults to "weighted".
+        """
+        super().__init__(name)
+        self.average = "macro"  # or "binary" or "weighted" depending on your setup
+
+    def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
+        assert logits.shape[0] == target.shape[0]
+        target = target.cpu().detach()
+        logits = logits.cpu().detach()
+        y_true = target.reshape(-1)
+        preds = (logits >= 0.5).float()
+        return sklearn_metrics.recall_score(y_true, preds, average=self.average, zero_division=0)
 
 
 class F1(SimpleMetric):
@@ -328,6 +398,7 @@ class F1(SimpleMetric):
         super().__init__(name)
         # self.average = average
         self.average = "macro"
+        # self.average = "binary"
 
     def __call__(self, logits: torch.Tensor, target: torch.Tensor) -> Scalar:
         assert logits.shape[0] == target.shape[0]
