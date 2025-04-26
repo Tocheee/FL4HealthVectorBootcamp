@@ -3,25 +3,18 @@ import warnings
 from collections.abc import Callable
 from logging import INFO
 from pathlib import Path
-import os
 
-import pandas as pd
 import numpy as np
 import torch
 import torchvision.transforms as transforms
 from flwr.common.logger import log
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10, MNIST
 
 from fl4health.utils.dataset import TensorDataset
 from fl4health.utils.dataset_converter import DatasetConverter
 from fl4health.utils.msd_dataset_sources import get_msd_dataset_enum, msd_md5_hashes, msd_urls
 from fl4health.utils.sampler import LabelBasedSampler
-
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.model_selection import train_test_split
-from typing import List, Tuple
-import joblib
 
 with warnings.catch_warnings():
     # ignoring some annoying scipy deprecation warnings
@@ -304,7 +297,22 @@ def load_msd_dataset(data_path: str, msd_dataset_name: str) -> None:
     download_and_extract(url=url, output_dir=data_path, hash_val=msd_hash, hash_type="md5", progress=True)
 
 
-## load bank account fraud dataset
+
+
+import os
+import torch
+import pandas as pd
+import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from pathlib import Path
+from typing import List, Tuple
+import joblib
+from torch.utils.data import WeightedRandomSampler
+from sklearn.utils import resample
+
+            
 class TabularScaler:
     def __init__(self, numeric_features: List[str], categorical_features: List[str]) -> None:
         self.numeric_features = numeric_features
@@ -350,6 +358,7 @@ class TabularScaler:
         categorical_data_encoded = self.encoder.transform(X[self.categorical_features])
         return np.hstack((numeric_data_scaled, categorical_data_encoded))
 
+
 class DataPrep:
     def __init__(self, data_file_path: Path, scaler_path: Path, batch_size: int):
         self.data_file_path = data_file_path
@@ -394,22 +403,56 @@ class DataPrep:
         X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
         X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.1765, random_state=42, stratify=y_temp)
 
+        # Custom Oversampling (1:5 ratio with Gaussian noise)
+        df_train = X_train.copy()
+        df_train['label'] = y_train
+
+        majority = df_train[df_train.label == 0]
+        minority = df_train[df_train.label == 1]
+
+        # Determine new minority size (capped to 1:5)
+        minority_upsampled = resample(minority, replace=True, n_samples=int(len(majority) * 0.20), random_state=42)
+
+        # Add Gaussian noise to numeric features
+        numeric_cols = self.scaler.numeric_features
+        minority_augmented = minority_upsampled.copy()
+        noise = np.random.normal(loc=0.0, scale=0.01, size=minority_augmented[numeric_cols].shape)
+        minority_augmented[numeric_cols] += noise
+
+        # Combine and shuffle
+        df_balanced = pd.concat([majority, minority_augmented])
+        df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        y_train_bal = df_balanced['label'].values
+        X_train_bal = df_balanced.drop(columns=['label'])
+
         # Scale using the global scaler
-        X_train_scaled = self.scaler.transform(X_train)
+        X_train_scaled = self.scaler.transform(X_train_bal)
         X_val_scaled = self.scaler.transform(X_val)
         X_test_scaled = self.scaler.transform(X_test)
 
         self.input_dim = X_train_scaled.shape[1]
 
         # Convert to tensors
-        def make_loader(X_data, y_data):
+        def make_loader(X_data, y_data, use_sampler=False, shuffle=True):
             X_tensor = torch.tensor(X_data, dtype=torch.float32)
             y_tensor = torch.tensor(y_data, dtype=torch.float32)
-            return DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=self.batch_size, shuffle=True)
+            dataset = TensorDataset(X_tensor, y_tensor)
 
-        self.train_loader = make_loader(X_train_scaled, y_train)
-        self.val_loader = make_loader(X_val_scaled, y_val)
-        self.test_loader = make_loader(X_test_scaled, y_test)
+            if use_sampler:
+                # Compute class weights
+                class_sample_count = np.array([len(np.where(y_data == t)[0]) for t in np.unique(y_data)])
+                weight = 1. / class_sample_count
+                samples_weight = np.array([weight[int(t)] for t in y_data])
+                samples_weight = torch.from_numpy(samples_weight).double()
+                sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
+                return DataLoader(dataset, batch_size=self.batch_size, sampler=sampler)
+            else:
+                return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
+        self.train_loader = make_loader(X_train_scaled, y_train_bal)
+        self.val_loader = make_loader(X_val_scaled, y_val, shuffle = False)
+        self.test_loader = make_loader(X_test_scaled, y_test, shuffle = False)
 
         self.num_examples = {
             "train_set": len(y_train),
