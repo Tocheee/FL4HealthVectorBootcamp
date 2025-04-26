@@ -34,7 +34,7 @@ def get_input_dim_from_scaler(scaler_path: str) -> int:
     from fl4health.utils.load_data import TabularScaler
     import numpy as np
     import pandas as pd
-
+    
     scaler: TabularScaler = joblib.load(scaler_path)
     # print("Numeric features:", scaler.numeric_features)
     # print("Categorical features:", scaler.categorical_features)
@@ -48,7 +48,7 @@ def get_input_dim_from_scaler(scaler_path: str) -> int:
 
     transformed = scaler.transform(dummy_data)
     return transformed.shape[1]
-
+    
 def main(config: dict[str, Any]) -> None:#, , data_file_path: str
     # This function will be used to produce a config that is sent to each client to initialize their own environment
     fit_config_fn = partial(
@@ -93,12 +93,13 @@ def main(config: dict[str, Any]) -> None:#, , data_file_path: str
         fl_config=config,
         strategy=strategy,
         checkpoint_and_state_module=checkpoint_and_state_module,
+        # accept_failures=True, 
         accept_failures=False,
     )
 
     fl.server.start_server(
         server=server,
-        server_address="0.0.0.0:1080",
+        server_address="0.0.0.0:2057",
         config=fl.server.ServerConfig(num_rounds=config["n_server_rounds"]),
     )
 
