@@ -1,20 +1,23 @@
 import pandas as pd
 import numpy as np
 import argparse
+import joblib
+import os
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from pathlib import Path
 from fl4health.utils.load_data import TabularScaler
-import joblib
-import os
+
 
 def load_and_concat_all_variants(data_folder: Path) -> pd.DataFrame:
     
-    # variant_files = list(data_folder.glob("Variant*.csv"))
-    variant_files = list(data_folder.glob("base*.csv"))
+    variant_files = list(data_folder.glob("variant_*.csv"))
+    # variant_files = list(data_folder.glob("base*.csv"))
     all_dfs = []
 
     for file in variant_files:
+
+        # if file == "Variant III" or file == "Variant V"
         df = pd.read_csv(file)
 
         # Drop irrelevant columns
@@ -47,6 +50,7 @@ def create_and_save_scaler(data_folder: str, scaler_save_path: str):
     X = full_df.drop(columns=["fraud_bool"])
 
     numeric_cols = X.select_dtypes(include=["number"]).columns.tolist()
+
     categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
 
     scaler = TabularScaler(numeric_cols, categorical_cols)

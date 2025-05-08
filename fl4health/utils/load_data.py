@@ -407,34 +407,43 @@ class DataPrep:
         df_train = X_train.copy()
         df_train['label'] = y_train
 
-        majority = df_train[df_train.label == 0]
-        minority = df_train[df_train.label == 1]
+        # majority = df_train[df_train.label == 0]
+        # minority = df_train[df_train.label == 1]
 
-        # Determine new minority size (capped to 1:5)
-        minority_upsampled = resample(minority, replace=True, n_samples=int(len(majority) * 0.20), random_state=42)
+        # # Determine new minority size (capped to 1:5)
+        # minority_upsampled = resample(minority, replace=True, n_samples=int(len(majority) * 0.20), random_state=42)
 
-        # Add Gaussian noise to numeric features
-        numeric_cols = self.scaler.numeric_features
-        minority_augmented = minority_upsampled.copy()
-        noise = np.random.normal(loc=0.0, scale=0.01, size=minority_augmented[numeric_cols].shape)
-        minority_augmented[numeric_cols] += noise
+        # # Add Gaussian noise to numeric features
+        # numeric_cols = minority_upsampled.select_dtypes(include=["number"]).columns.tolist()
+        # minority_augmented = minority_upsampled.copy()
+        # noise = np.random.normal(loc=0.0, scale=0.01, size=minority_augmented[numeric_cols].shape)
+        # minority_augmented[numeric_cols] += noise
 
-        # Combine and shuffle
-        df_balanced = pd.concat([majority, minority_augmented])
-        df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+        # # Combine and shuffle
+        # df_balanced = pd.concat([majority, minority_augmented])
+        # df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        df_balanced = df_train
 
         y_train_bal = df_balanced['label'].values
         X_train_bal = df_balanced.drop(columns=['label'])
 
+        numeric_cols = X_train_bal.select_dtypes(include=["number"]).columns.tolist()
+
+        categorical_cols = X_train_bal.select_dtypes(include=["object", "category"]).columns.tolist()
+
+        scaler = TabularScaler(numeric_cols, categorical_cols)
+        scaler.fit_transform(X_train_bal)  # Fit the internal scalers/encoders
+
         # Scale using the global scaler
-        X_train_scaled = self.scaler.transform(X_train_bal)
-        X_val_scaled = self.scaler.transform(X_val)
-        X_test_scaled = self.scaler.transform(X_test)
+        X_train_scaled = scaler.transform(X_train_bal)
+        X_val_scaled = scaler.transform(X_val)
+        X_test_scaled = scaler.transform(X_test)
 
         self.input_dim = X_train_scaled.shape[1]
 
         # Convert to tensors
-        def make_loader(X_data, y_data, use_sampler=False, shuffle=True):
+        def make_loader(X_data, y_data, use_sampler=True, shuffle=True):
             X_tensor = torch.tensor(X_data, dtype=torch.float32)
             y_tensor = torch.tensor(y_data, dtype=torch.float32)
             dataset = TensorDataset(X_tensor, y_tensor)

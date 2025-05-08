@@ -309,17 +309,20 @@ class ROC_AUC(SimpleMetric):
         logits = logits.cpu().detach()
         target = target.cpu().detach().reshape(-1)
 
+        target = target.to(int)
+
         # Binary classification (logits shape: [N, 1] or [N])
         if logits.shape[1] == 1:
             # Apply sigmoid and flatten
             prob = torch.sigmoid(logits).squeeze(1).numpy() # Converts logits to [0, 1] probabilities
+            # print(target.numpy())
             return roc_auc_score(target.numpy(), prob)
 
         # Multiclass classification (logits shape: [N, C])
         prob = torch.nn.functional.softmax(logits, dim=1).numpy()
 
         # Return ROC AUC with One-vs-Rest strategy
-        return roc_auc_score(target.numpy(), prob, average="weighted", multi_class="ovr")
+        return roc_auc_score(target.numpy().astype(int), prob, average="macro", multi_class="ovr")
 
 
 class Precision(SimpleMetric):
@@ -346,6 +349,9 @@ class Precision(SimpleMetric):
         logits = logits.cpu().detach()
         y_true = target.reshape(-1)
         preds = (logits >= 0.5).float()
+
+        y_true = y_true.to(torch.int)
+        preds = preds.to(torch.int)
         return sklearn_metrics.precision_score(y_true, preds, average=self.average, zero_division=0)
 
 
@@ -373,6 +379,10 @@ class Recall(SimpleMetric):
         logits = logits.cpu().detach()
         y_true = target.reshape(-1)
         preds = (logits >= 0.5).float()
+
+        y_true = y_true.to(torch.int)
+        preds = preds.to(torch.int)
+
         return sklearn_metrics.recall_score(y_true, preds, average=self.average, zero_division=0)
 
 
@@ -408,6 +418,9 @@ class F1(SimpleMetric):
         mask_one = logits >= 0.5
         preds = torch.zeros_like(logits)
         preds[mask_one] = 1.0
+
+        y_true = y_true.to(torch.int)
+        preds  = preds.to(torch.int)
         return sklearn_metrics.f1_score(y_true, preds, average=self.average)
 
 
@@ -430,6 +443,8 @@ class BalancedAccuracy(SimpleMetric):
         mask_one = logits >= 0.5
         preds = torch.zeros_like(logits)
         preds[mask_one] = 1.0
+        y_true = y_true.to(torch.int)
+        preds = preds.to(torch.int)
         return sklearn_metrics.balanced_accuracy_score(y_true, preds)
 
 
